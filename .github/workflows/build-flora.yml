@@ -1,11 +1,13 @@
-name: Build Flora (roothide) – Fully Modern
+name: Build Flora (roothide)
 
 on:
   workflow_dispatch:
+  pull_request:
     branches:
       - main
-  pull_request:
-  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -21,6 +23,7 @@ jobs:
       - name: Get Theos commit hash
         id: theos-commit
         run: |
+          set -euxo pipefail
           SHA=$(curl -s https://api.github.com/repos/roothide/theos/commits/master | jq -r .sha)
           echo "sha=$SHA" >> $GITHUB_OUTPUT
 
@@ -38,12 +41,14 @@ jobs:
 
       - name: Verify Theos toolchain
         run: |
+          set -euxo pipefail
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           "$THEOS/toolchain/linux/iphone/bin/clang" --version
 
       - name: Ensure SDK is available
         id: ensure_sdk
         run: |
+          set -euxo pipefail
           SDK_DIR="$THEOS/sdks"
           mkdir -p "$SDK_DIR"
           if ls -1 "$SDK_DIR" | grep -q '^iPhoneOS.*\.sdk$'; then
@@ -52,7 +57,7 @@ jobs:
             echo "sdk_version=$HIGHEST" >> $GITHUB_OUTPUT
           else
             echo "No SDK found. Downloading iPhoneOS16.0..."
-            curl -L -o /tmp/sdk.tar.xz "https://github.com/theos/sdks/raw/master/iPhoneOS16.0.sdk.tar.xz"
+            curl -fL -o /tmp/sdk.tar.xz "https://github.com/theos/sdks/raw/master/iPhoneOS16.0.sdk.tar.xz"
             tar -xJf /tmp/sdk.tar.xz -C "$SDK_DIR"
             echo "Downloaded iPhoneOS16.0.sdk"
             echo "sdk_version=16.0" >> $GITHUB_OUTPUT
@@ -66,19 +71,28 @@ jobs:
           key: theos-${{ steps.theos-commit.outputs.sha }}
 
       - name: Clone LibGcUniversal
-        run: git clone https://github.com/waruhachi/LibGcUniversal.git /tmp/LibGcUniversal
+        run: git clone --depth 1 https://github.com/waruhachi/LibGcUniversal.git /tmp/LibGcUniversal
 
       - name: Install LibGcUniversal
         working-directory: /tmp/LibGcUniversal
         run: bash install.sh
 
-      # ---------- Pre-built libSandy ----------
+      - name: Verify LibGcUniversal installation
+        run: |
+          set -euxo pipefail
+          test -d "$THEOS/lib" || { echo "THEOS/lib missing"; exit 1; }
+          echo "Libraries with 'gc':"
+          find "$THEOS/lib" -name '*gc*' -print || true
+          find "$THEOS/lib" -name '*gc*' | grep -q . || { echo "No LibGcUniversal libraries found"; exit 1; }
+
       - name: Download libSandy .deb
         run: |
-          curl -L -o /tmp/libsandy.deb "https://roothide.github.io/./debfiles/com.opa334.libsandy_1.1.6-4_iphoneos-arm64e.deb"
+          set -euxo pipefail
+          curl -fL -o /tmp/libsandy.deb "https://roothide.github.io/./debfiles/com.opa334.libsandy_1.1.6-4_iphoneos-arm64e.deb"
 
       - name: Extract libsandy.dylib
         run: |
+          set -euxo pipefail
           mkdir -p /tmp/libsandy_extract
           cd /tmp/libsandy_extract
           ar x /tmp/libsandy.deb
@@ -91,13 +105,23 @@ jobs:
           mkdir -p "$THEOS/lib/iphone/roothide"
           find . -name "*.dylib" -exec cp -v {} "$THEOS/lib/iphone/roothide/" \;
 
+      - name: Verify libSandy installation
+        run: |
+          set -euxo pipefail
+          test -d "$THEOS/lib/iphone/roothide" || { echo "roothide lib directory missing"; exit 1; }
+          echo "Libraries with 'sandy':"
+          find "$THEOS/lib/iphone/roothide" -name '*sandy*' -print || true
+          find "$THEOS/lib/iphone/roothide" -name '*sandy*' | grep -q . || { echo "No libSandy dylib found"; exit 1; }
+
       - name: Fetch libSandy.h
         run: |
+          set -euxo pipefail
           git clone --depth 1 https://github.com/roothide/libSandy.git /tmp/libSandy_headers
           cp -v /tmp/libSandy_headers/libSandy.h "$THEOS/include/"
 
       - name: Fetch XPC headers (launch.h + xpc/)
         run: |
+          set -euxo pipefail
           git clone --depth 1 https://github.com/opa334/libSandy.git /tmp/opa334-libsandy
           cd /tmp/opa334-libsandy
           git fetch origin c37f5b7e2877a10521edf498f734d211b74203a4
@@ -105,24 +129,71 @@ jobs:
           cp -v ./headers/launch.h "$THEOS/include/"
           cp -rv ./headers/xpc "$THEOS/include/"
 
-      # ---------- FULL MIGRATION TO ROOTHIDE API ----------
-      - name: Migrate from rootless.h to roothide.h
+      - name: Verify build environment
         run: |
-          # 1. Replace #import <rootless.h> with #import <roothide.h>
-          find . -type f \( -name "*.h" -o -name "*.m" -o -name "*.x" \) -exec sed -i 's/#import <rootless.h>/#import <roothide.h>/g' {} +
+          set -euxo pipefail
+          echo "THEOS: $THEOS"
+          test -d "$THEOS" || { echo "THEOS directory missing"; exit 1; }
+          echo "make version:"
+          make --version
+          echo "clang version:"
+          "$THEOS/toolchain/linux/iphone/bin/clang" --version
+          echo "Installed SDKs:"
+          ls -1 "$THEOS/sdks/" || echo "No SDKs directory found"
+          echo "THEOS include directory:"
+          ls "$THEOS/include/"
+          echo "THEOS iPhone libraries:"
+          test -d "$THEOS/lib/iphone" || { echo "iPhone lib directory missing"; exit 1; }
+          ls "$THEOS/lib/iphone/"
+          echo "THEOS roothide libraries:"
+          test -d "$THEOS/lib/iphone/roothide" || { echo "roothide lib directory missing"; exit 1; }
+          ls "$THEOS/lib/iphone/roothide/"
+          test -f "$THEOS/include/libSandy.h" || { echo "libSandy.h missing"; exit 1; }
+          test -f "$THEOS/include/launch.h" || { echo "launch.h missing"; exit 1; }
+          test -d "$THEOS/include/xpc" || { echo "xpc directory missing"; exit 1; }
 
-          # 2. Replace ROOT_PATH(...) with jbroot(...)
-          find . -type f \( -name "*.h" -o -name "*.m" -o -name "*.x" \) -exec sed -i 's/ROOT_PATH(\([^)]*\))/jbroot(\1)/g' {} +
-
-          # 3. Replace ROOT_PATH_NS(...) with @(jbroot(...))
-          find . -type f \( -name "*.h" -o -name "*.m" -o -name "*.x" \) -exec sed -i 's/ROOT_PATH_NS(\([^)]*\))/@(jbroot(\1))/g' {} +
+      - name: Pre-build checks
+        run: |
+          set -euxo pipefail
+          echo "=== Installed libraries in THEOS ==="
+          echo "--- $THEOS/lib ---"
+          find "$THEOS/lib" -type f -print | sort
+          echo "--- $THEOS/lib/iphone ---"
+          if [ -d "$THEOS/lib/iphone" ]; then find "$THEOS/lib/iphone" -type f -print | sort; else echo "No iphone dir"; fi
+          echo "--- $THEOS/lib/iphone/roothide ---"
+          if [ -d "$THEOS/lib/iphone/roothide" ]; then find "$THEOS/lib/iphone/roothide" -type f -print | sort; else echo "No roothide dir"; fi
+          echo "=== Checking critical project files ==="
+          test -f "layout/Library/libSandy/Flora_Preferences.plist" || { echo "Missing libSandy profile: layout/Library/libSandy/Flora_Preferences.plist"; exit 1; }
+          test -f "Makefile" || { echo "Root Makefile missing"; exit 1; }
+          test -f "Tweak/Makefile" || { echo "Tweak/Makefile missing"; exit 1; }
+          test -f "Preferences/Makefile" || { echo "Preferences/Makefile missing"; exit 1; }
+          echo "=== Makefile configuration ==="
+          make -n -p package 2>/dev/null | grep -E '^\s*(THEOS_PACKAGE_SCHEME|ARCHS|TARGET|Flora_LIBRARIES|FloraPreferences_LIBRARIES)\s*[:?]?=' || echo "Could not extract some variables"
 
       - name: Build Flora package
-        run: make package THEOS_PACKAGE_SCHEME=roothide ARCHS=arm64e
+        run: |
+          set -euxo pipefail
+          make clean
+          make package messages=yes THEOS_PACKAGE_SCHEME=roothide ARCHS=arm64e
+
+      - name: Verify generated package
+        run: |
+          set -euxo pipefail
+          echo "Generated .deb files:"
+          find packages -maxdepth 1 -name '*.deb' -print
+          if command -v dpkg-deb >/dev/null 2>&1; then
+            for deb in packages/*.deb; do
+              echo "=== Package info for $deb ==="
+              dpkg-deb --info "$deb"
+            done
+          else
+            echo "dpkg-deb not available, skipping package metadata check"
+          fi
 
       - name: Locate and upload .deb
         id: locate_deb
         run: |
+          set -euxo pipefail
           DEB_PATH=$(find packages -maxdepth 1 -name 'com.rosiepie.flora*.deb' | head -n1)
           if [ -z "$DEB_PATH" ]; then
             echo "No .deb found in packages/"
@@ -131,7 +202,17 @@ jobs:
           echo "deb_path=$DEB_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Flora-roothide
           path: ${{ steps.locate_deb.outputs.deb_path }}
+
+      - name: Upload build output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Flora-roothide-build-output
+          path: |
+            .theos
+            packages
