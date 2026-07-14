@@ -21,7 +21,6 @@
 
         UIButton *accessoryButton = [UIButton buttonWithType:UIButtonTypeCustom];
         accessoryButton.frame = CGRectMake(0, 0, 20, 16);
-        accessoryButton.adjustsImageWhenHighlighted = NO;
         accessoryButton.contentVerticalAlignment = UIControlContentVerticalAlignmentFill;
         accessoryButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentFill;
         accessoryButton.menu = menu;
