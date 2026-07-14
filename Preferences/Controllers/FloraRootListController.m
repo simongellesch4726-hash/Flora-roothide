@@ -56,15 +56,22 @@
 
     UIImageSymbolConfiguration *symbolConfig = [UIImageSymbolConfiguration configurationWithScale:UIImageSymbolScaleMedium];
     UIImage *respringImage = [UIImage systemImageNamed:@"arrow.counterclockwise" withConfiguration:symbolConfig];
-    [respringButton setImage:respringImage forState:UIControlStateNormal];
-    [respringButton setTitle:@"Respring" forState:UIControlStateNormal];
 
-    respringButton.titleLabel.font = [UIFont systemFontOfSize:17.0];
-    respringButton.tintColor = [UIColor redColor];
-    respringButton.titleEdgeInsets = UIEdgeInsetsMake(0.0, 10.0, 0.0, 0.0);
+    UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
+    config.image = respringImage;
+    config.title = @"Respring";
+    config.imagePadding = 10.0;
+    config.baseForegroundColor = [UIColor redColor];
+    config.titleTextAttributesTransformer = ^NSDictionary<NSAttributedStringKey, id> * (NSDictionary<NSAttributedStringKey, id> *attributes) {
+        NSMutableDictionary *newAttributes = [attributes mutableCopy];
+        newAttributes[NSFontAttributeName] = [UIFont systemFontOfSize:17.0];
+        return newAttributes;
+    };
+
+    respringButton.configuration = config;
+
     respringButton.alpha = enabled == [[preferences objectForKey:@"enabled"] boolValue] ? 0.0 : 1.0;
 
-    [respringButton setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
     [respringButton addTarget:self action:@selector(promptToRespring) forControlEvents:UIControlEventTouchUpInside];
     [respringButton sizeToFit];
 
@@ -83,7 +90,7 @@
 
         for (PSSpecifier *specifier in baseSpecifiers) {
             if ([[specifier propertyForKey:@"id"] isEqualToString:@"credits"]) {
-                [specifier setProperty:[NSString stringWithFormat:@"Â© Rosie (acquitelol) 2024 â¢ %@/%@", BUNDLE_ID, PACKAGE_SCHEME] forKey:@"footerText"];
+                [specifier setProperty:[NSString stringWithFormat:@"ÃÂ© Rosie (acquitelol) 2024 Ã¢ÂÂ¢ %@/%@", BUNDLE_ID, PACKAGE_SCHEME] forKey:@"footerText"];
                 [specifier setProperty:@YES forKey:@"isStaticText"];
             }
 
@@ -150,12 +157,12 @@
 
     [self reloadSpecifiers];
 
-    UIAlertController *failedAlert = [Utilities alertWithDescription:@"Successfully cleared preferences! (â§â¡â¦)"];
+    UIAlertController *failedAlert = [Utilities alertWithDescription:@"Successfully cleared preferences! (Ã¢ÂÂ§Ã¢ÂÂ¡Ã¢ÂÂ¦)"];
     [self presentViewController:failedAlert animated:YES completion:nil];
 }
 
 - (void)displayError:(NSString *)error {
-    UIAlertController *failedAlert = [Utilities alertWithDescription:[NSString stringWithFormat:@"Failed to import preferences (Ã³ï¹Ã² ï½¡)\n\n%@", error]];
+    UIAlertController *failedAlert = [Utilities alertWithDescription:[NSString stringWithFormat:@"Failed to import preferences (ÃÂ³Ã¯Â¹ÂÃÂ² Ã¯Â½Â¡)\n\n%@", error]];
     [self presentViewController:failedAlert animated:YES completion:nil];
 }
 
@@ -197,7 +204,7 @@
 
         // We don't have to reload specifiers here because there are already observers
         // which await for changes to the properties that matter like simple colors
-        UIAlertController *successAlert = [Utilities alertWithDescription:@"Successfully imported preferences! (â§â¡â¦)\n\nWould you like to respring now?" handler:^{
+        UIAlertController *successAlert = [Utilities alertWithDescription:@"Successfully imported preferences! (Ã¢ÂÂ§Ã¢ÂÂ¡Ã¢ÂÂ¦)\n\nWould you like to respring now?" handler:^{
             [Utilities respring];
         }];
 
@@ -237,13 +244,13 @@
     NSString *compressedString = [compressedData base64EncodedStringWithOptions:0];
     [UIPasteboard generalPasteboard].string = compressedString;
 
-    UIAlertController *successAlert = [Utilities alertWithDescription:@"Exported preferences to clipboard! (â§â¡â¦)"];
+    UIAlertController *successAlert = [Utilities alertWithDescription:@"Exported preferences to clipboard! (Ã¢ÂÂ§Ã¢ÂÂ¡Ã¢ÂÂ¦)"];
     [self presentViewController:successAlert animated:YES completion:nil];
 }
 
 - (void)openDebugger {
     // Basic information
-    NSString *information = @"Feel free to screenshot this and send to the developer for debugging purposes! (â§â¡â¦)";
+    NSString *information = @"Feel free to screenshot this and send to the developer for debugging purposes! (Ã¢ÂÂ§Ã¢ÂÂ¡Ã¢ÂÂ¦)";
     NSString *bundleIdentifier = [NSString stringWithFormat:@"Bundle ID: %@", BUNDLE_ID];
     NSString *packageScheme = [NSString stringWithFormat:@"Package Scheme: %@", PACKAGE_SCHEME];
     NSString *spacer = @"";
@@ -255,17 +262,17 @@
     NSString *deviceIdentifier = [NSString stringWithFormat:@"Device ID: %@", [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding]];
 
     // Debug information
-    NSString *libSandyWorking = [NSString stringWithFormat:@"Does libSandy work? %@", libSandy_works() ? @"â" : @"â"];
+    NSString *libSandyWorking = [NSString stringWithFormat:@"Does libSandy work? %@", libSandy_works() ? @"Ã¢ÂÂ" : @"Ã¢ÂÂ"];
 
-    int result = libSandy_applyProfile("Flora_Preferences");
+    libSandy_applyProfile("Flora_Preferences");
 
     // Always use the suite name, the profile enables access
     preferences = [[NSUserDefaults alloc] initWithSuiteName:BUNDLE_ID];
     id enabled = [preferences objectForKey:@"enabled"];
 
-    NSString *preferencesWorking = [NSString stringWithFormat:@"Can you read preferences? %@", (enabled != nil) ? @"â" : @"â"];
-    NSString *disableInApps = [NSString stringWithFormat:@"Disabled in apps? %@", [preferences boolForKey:@"disableInApps"] ? @"â" : @"â"];
-    NSString *whiteColorEnabled = [NSString stringWithFormat:@"White color enabled? %@", [preferences boolForKey:@"whiteColorEnabled"] ? @"â" : @"â"];
+    NSString *preferencesWorking = [NSString stringWithFormat:@"Can you read preferences? %@", (enabled != nil) ? @"Ã¢ÂÂ" : @"Ã¢ÂÂ"];
+    NSString *disableInApps = [NSString stringWithFormat:@"Disabled in apps? %@", [preferences boolForKey:@"disableInApps"] ? @"Ã¢ÂÂ" : @"Ã¢ÂÂ"];
+    NSString *whiteColorEnabled = [NSString stringWithFormat:@"White color enabled? %@", [preferences boolForKey:@"whiteColorEnabled"] ? @"Ã¢ÂÂ" : @"Ã¢ÂÂ"];
 
     NSString *primaryColor = [preferences objectForKey:@"floraPrimaryColor"];
     NSString *secondaryColor = [preferences objectForKey:@"floraSecondaryColor"];
@@ -301,3 +308,5 @@
     UIAlertController *failedAlert = [Utilities alertWithDescription:debugInformation];
     [self presentViewController:failedAlert animated:YES completion:nil];
 }
+
+@end
