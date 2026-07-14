@@ -1,0 +1,49 @@
+name: Unzip and flatten to root
+
+on:
+  workflow_dispatch:
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract and flatten
+        run: |
+          # Find the first .zip file
+          ZIPFILE=$(ls *.zip 2>/dev/null | head -n 1)
+          
+          if [ -z "$ZIPFILE" ]; then
+            echo "No .zip file found. Exiting."
+            exit 0
+          fi
+
+          # Get the folder name (remove .zip extension)
+          FOLDERNAME="${ZIPFILE%.zip}"
+
+          # Extract the zip
+          unzip -o "$ZIPFILE"
+
+          # If the extracted folder exists, move its ENTIRE contents to root
+          if [ -d "$FOLDERNAME" ]; then
+            # Enable hidden files (.*) to be moved too
+            shopt -s dotglob
+            # Move everything from the subfolder to the current directory
+            mv "$FOLDERNAME"/* . 2>/dev/null || true
+            # Remove the now-empty wrapper folder
+            rmdir "$FOLDERNAME" 2>/dev/null || true
+            shopt -u dotglob
+          else
+            echo "No matching folder found. Files are already at root."
+          fi
+
+          # Delete the original zip
+          rm -f "$ZIPFILE"
+
+          # Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Extracted and flattened $ZIPFILE" || echo "No changes to commit"
+          git push
