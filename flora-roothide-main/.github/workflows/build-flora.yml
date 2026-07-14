@@ -1,0 +1,137 @@
+name: Build Flora (roothide) – Fully Modern
+
+on:
+  workflow_dispatch:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      THEOS: /home/runner/theos
+
+    steps:
+      - name: Checkout Flora
+        uses: actions/checkout@v4
+
+      - name: Get Theos commit hash
+        id: theos-commit
+        run: |
+          SHA=$(curl -s https://api.github.com/repos/roothide/theos/commits/master | jq -r .sha)
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+      - name: Restore Theos cache
+        id: cache-theos
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.THEOS }}
+          key: theos-${{ steps.theos-commit.outputs.sha }}
+
+      - name: Install roothide Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos)"
+
+      - name: Verify Theos toolchain
+        run: |
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          "$THEOS/toolchain/linux/iphone/bin/clang" --version
+
+      - name: Ensure SDK is available
+        id: ensure_sdk
+        run: |
+          SDK_DIR="$THEOS/sdks"
+          mkdir -p "$SDK_DIR"
+          if ls -1 "$SDK_DIR" | grep -q '^iPhoneOS.*\.sdk$'; then
+            HIGHEST=$(ls -1 "$SDK_DIR" | grep -E '^iPhoneOS[0-9]+\.[0-9]+\.sdk$' | sed 's/iPhoneOS\(.*\)\.sdk/\1/' | sort -V | tail -n1)
+            echo "Using existing SDK: $HIGHEST"
+            echo "sdk_version=$HIGHEST" >> $GITHUB_OUTPUT
+          else
+            echo "No SDK found. Downloading iPhoneOS16.0..."
+            curl -L -o /tmp/sdk.tar.xz "https://github.com/theos/sdks/raw/master/iPhoneOS16.0.sdk.tar.xz"
+            tar -xJf /tmp/sdk.tar.xz -C "$SDK_DIR"
+            echo "Downloaded iPhoneOS16.0.sdk"
+            echo "sdk_version=16.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Save Theos cache
+        if: steps.cache-theos.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.THEOS }}
+          key: theos-${{ steps.theos-commit.outputs.sha }}
+
+      - name: Clone LibGcUniversal
+        run: git clone https://github.com/waruhachi/LibGcUniversal.git /tmp/LibGcUniversal
+
+      - name: Install LibGcUniversal
+        working-directory: /tmp/LibGcUniversal
+        run: bash install.sh
+
+      # ---------- Pre-built libSandy ----------
+      - name: Download libSandy .deb
+        run: |
+          curl -L -o /tmp/libsandy.deb "https://roothide.github.io/./debfiles/com.opa334.libsandy_1.1.6-4_iphoneos-arm64e.deb"
+
+      - name: Extract libsandy.dylib
+        run: |
+          mkdir -p /tmp/libsandy_extract
+          cd /tmp/libsandy_extract
+          ar x /tmp/libsandy.deb
+          DATA_ARCHIVE=$(ls data.tar.* 2>/dev/null | head -n1)
+          if [ -z "$DATA_ARCHIVE" ]; then
+            echo "No data archive found!"
+            exit 1
+          fi
+          tar -xf "$DATA_ARCHIVE"
+          mkdir -p "$THEOS/lib/iphone/roothide"
+          find . -name "*.dylib" -exec cp -v {} "$THEOS/lib/iphone/roothide/" \;
+
+      - name: Fetch libSandy.h
+        run: |
+          git clone --depth 1 https://github.com/roothide/libSandy.git /tmp/libSandy_headers
+          cp -v /tmp/libSandy_headers/libSandy.h "$THEOS/include/"
+
+      - name: Fetch XPC headers (launch.h + xpc/)
+        run: |
+          git clone --depth 1 https://github.com/opa334/libSandy.git /tmp/opa334-libsandy
+          cd /tmp/opa334-libsandy
+          git fetch origin c37f5b7e2877a10521edf498f734d211b74203a4
+          git checkout c37f5b7e2877a10521edf498f734d211b74203a4
+          cp -v ./headers/launch.h "$THEOS/include/"
+          cp -rv ./headers/xpc "$THEOS/include/"
+
+      # ---------- FULL MIGRATION TO ROOTHIDE API ----------
+      - name: Migrate from rootless.h to roothide.h
+        run: |
+          # 1. Replace #import <rootless.h> with #import <roothide.h>
+          find . -type f \( -name "*.h" -o -name "*.m" -o -name "*.x" \) -exec sed -i 's/#import <rootless.h>/#import <roothide.h>/g' {} +
+
+          # 2. Replace ROOT_PATH(...) with jbroot(...)
+          find . -type f \( -name "*.h" -o -name "*.m" -o -name "*.x" \) -exec sed -i 's/ROOT_PATH(\([^)]*\))/jbroot(\1)/g' {} +
+
+          # 3. Replace ROOT_PATH_NS(...) with @(jbroot(...))
+          find . -type f \( -name "*.h" -o -name "*.m" -o -name "*.x" \) -exec sed -i 's/ROOT_PATH_NS(\([^)]*\))/@(jbroot(\1))/g' {} +
+
+      - name: Build Flora package
+        run: make package THEOS_PACKAGE_SCHEME=roothide ARCHS=arm64e
+
+      - name: Locate and upload .deb
+        id: locate_deb
+        run: |
+          DEB_PATH=$(find packages -maxdepth 1 -name 'com.rosiepie.flora*.deb' | head -n1)
+          if [ -z "$DEB_PATH" ]; then
+            echo "No .deb found in packages/"
+            exit 1
+          fi
+          echo "deb_path=$DEB_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Flora-roothide
+          path: ${{ steps.locate_deb.outputs.deb_path }}
